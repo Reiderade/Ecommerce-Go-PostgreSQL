@@ -2,28 +2,40 @@ package controls
 
 import (
 	"net/http"
+	"strconv"
 
+	"github.com/athunlal/auth"
 	"github.com/athunlal/config"
+
 	"github.com/athunlal/models"
 	"github.com/gin-gonic/gin"
+
+	// "github.com/golang-jwt/jwt/v4"
 	"golang.org/x/crypto/bcrypt"
-	"gorm.io/gorm"
 )
 
-type data struct {
+type checkUserData struct {
 	Firstname   string
 	Lastname    string
 	Email       string
 	Password    string
-	PhoneNumber string
+	PhoneNumber int
 	Otp         string
+}
+
+//-------Validate----------------------->
+func Validate(c *gin.Context) {
+	c.Get("user")
+	c.JSON(http.StatusOK, gin.H{
+		"message": "User login successfully",
+	})
 }
 
 //----------User signup--------------------------------------->
 
 func UserSignUP(c *gin.Context) {
+	var Data checkUserData
 
-	var Data data
 	if c.Bind(&Data) != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error": "Bad request",
@@ -40,12 +52,13 @@ func UserSignUP(c *gin.Context) {
 		return
 	}
 
-	db := config.DBconnect()
+	otp := VerifyOTP(Data.Email)
 
+	db := config.DBconnect()
 	result := db.First(&temp_user, "email LIKE ?", Data.Email)
 	if result.Error != nil {
 		user := models.User{
-			Model:       gorm.Model{},
+
 			Firstname:   Data.Firstname,
 			Lastname:    Data.Lastname,
 			Email:       Data.Email,
@@ -58,8 +71,10 @@ func UserSignUP(c *gin.Context) {
 				"message": "Bad request",
 			})
 		} else {
-			c.JSON(http.StatusOK, gin.H{
-				"message": "Signup successful",
+			db.Model(&user).Where("email LIKE ?", user.Email).Update("otp", otp)
+
+			c.JSON(202, gin.H{
+				"message": "Go to /signup/otpvalidate", //202 success but there still one more process
 			})
 		}
 
@@ -69,6 +84,49 @@ func UserSignUP(c *gin.Context) {
 		})
 		return
 	}
+}
+
+//-------Otp validtioin------------->
+
+func OtpValidation(c *gin.Context) {
+	type User_otp struct {
+		Otp   string
+		Email string
+	}
+	var user_otp User_otp
+	var userData models.User
+	if c.Bind(&user_otp) != nil {
+		c.JSON(400, gin.H{
+			"Error": "Could not bind the JSON Data",
+		})
+		return
+	}
+	db := config.DBconnect()
+	result := db.First(&userData, "otp LIKE ? AND email LIKE ?", user_otp.Otp, user_otp.Email)
+	if result.Error != nil {
+		c.JSON(404, gin.H{
+			"Error": result.Error.Error(),
+		})
+		db.Last(&userData).Delete(&userData)
+		c.JSON(422, gin.H{
+			"Error":   "Wrong OTP Register Once agian",
+			"Message": "Goto /signup/otpvalidate",
+		})
+		return
+	}
+	c.JSON(200, gin.H{
+		"Message": "New User Successfully Registered",
+	})
+
+}
+
+//-------------User logout---------------------->
+
+func UserSignout(c *gin.Context) {
+	c.SetCookie("Autherization", "", -1, "", "", false, false)
+	c.JSON(200, gin.H{
+		"Message": "User Successfully  Log Out",
+	})
 }
 
 //------------User login------------------------>
@@ -104,7 +162,15 @@ func UesrLogin(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusBadRequest, gin.H{
-		"user": checkUser,
+	//----------------Generating a JWT-tokent-------------------//
+
+	str := strconv.Itoa(int(checkUser.ID))
+	tokenString := auth.TokenGeneration(str)
+	c.SetSameSite(http.SameSiteLaxMode)
+	c.SetCookie("Autherization", tokenString, 3600*24*30, "", "", false, true)
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": "User login successfully",
 	})
+
 }
