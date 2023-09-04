@@ -1,0 +1,35 @@
+version: "3"
+
+services:
+  db:
+    image: postgres
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: athun
+      POSTGRES_DB: ecom5
+    ports:
+      - "5437:5432"
+    networks:
+      - my-network
+
+  app:
+    build: .
+    image: athunlal/myapp:latest
+    ports:
+      - "9001:${PORT}"
+    depends_on:
+      - db
+    restart: always
+    environment:
+      DB_URL: ${DB_URL}
+    networks:
+      - my-network
+
+  
+
+networks:
+  my-network:
+    driver: bridge
+
+
