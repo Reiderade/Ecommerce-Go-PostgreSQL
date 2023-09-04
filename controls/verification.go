@@ -3,6 +3,7 @@ package controls
 import (
 	"crypto/rand"
 	"fmt"
+	"os"
 
 	"net/http"
 	"net/smtp"
@@ -28,9 +29,10 @@ func VerifyOTP(email string) string {
 
 func sendMail(email string, otp string) {
 
+	fmt.Println("Email : ", email, " otp :", otp)
 	// Sender data.
-	from := "golangathunbrototype@gmail.com"
-	password := "cpgmhxygkwpirrqi"
+	from := os.Getenv("EMAIL")
+	password := os.Getenv("PASSWORD")
 
 	// Receiver email address.
 	to := []string{
@@ -63,7 +65,6 @@ func getRandNum() (string, error) {
 }
 
 //-------Otp validtioin------------->
-
 func OtpValidation(c *gin.Context) {
 	type User_otp struct {
 		Otp   string
@@ -77,14 +78,14 @@ func OtpValidation(c *gin.Context) {
 		})
 		return
 	}
-	db := config.DBconnect()
+	db := config.DB
 	result := db.First(&userData, "otp LIKE ? AND email LIKE ?", user_otp.Otp, user_otp.Email)
 
 	if result.Error != nil {
 		c.JSON(404, gin.H{
 			"Error": result.Error.Error(),
 		})
-		db.Last(&userData).Delete(&userData)
+		// db.Last(&userData).Delete(&userData)
 		c.JSON(422, gin.H{
 			"Error":   "Wrong OTP Register Once agian",
 			"Message": "Goto /signup/otpvalidate",
@@ -110,7 +111,7 @@ func GenerateOtpForForgotPassword(c *gin.Context) {
 	}
 	otp := VerifyOTP(data.Email)
 
-	db := config.DBconnect()
+	db := config.DB
 	var userData models.User
 
 	result := db.Model(userData).Where("email = ?", data.Email).Update("otp", otp)
@@ -125,7 +126,7 @@ func GenerateOtpForForgotPassword(c *gin.Context) {
 	})
 }
 
-//Reseting the password 
+//Reseting the password
 func ChangePassword(c *gin.Context) {
 	type userEnterData struct {
 		Email           string
@@ -155,7 +156,7 @@ func ChangePassword(c *gin.Context) {
 		})
 		return
 	}
-	db := config.DBconnect()
+	db := config.DB
 	result := db.Find(&userData, "email = ?", data.Email)
 	if result.Error != nil {
 		c.JSON(409, gin.H{

@@ -17,18 +17,22 @@ type ProfileData struct {
 
 //>>>>>>>>>> Get user profile <<<<<<<<<<<<<<<<<<<<<<<<<
 func GetUserProfile(c *gin.Context) {
-	id := c.Param("id")
-	var user_data ProfileData
-	db := config.DBconnect()
-	result := db.Raw("SELECT firstname,lastname,email FROM users WHERE id =?", id).Scan(&user_data)
+	id := c.Query("userId")
+	var userData models.User
+	db := config.DB
+	result := db.First(&userData, id)
 	if result.Error != nil {
 		c.JSON(404, gin.H{
-			"Error": result.Error.Error(),
+			"Message": "User not exist",
 		})
 		return
 	}
 	c.JSON(200, gin.H{
-		"Profile Details": user_data,
+		"First name ":  userData.FirstName,
+		"Last Name":    userData.LastName,
+		"Email":        userData.Email,
+		"Phone number": userData.PhoneNumber,
+		"Is Block":     userData.Isblocked,
 	})
 
 }
@@ -51,10 +55,10 @@ func EditUserProfileByadmin(c *gin.Context) {
 		return
 	}
 	userData.ID = uint(id)
-	db := config.DBconnect()
+	db := config.DB
 	result := db.Model(&userData).Updates(models.User{
-		Firstname: userEnterdata.Firstname,
-		Lastname:  userEnterdata.Lastname,
+		FirstName: userEnterdata.Firstname,
+		LastName:  userEnterdata.Lastname,
 
 		PhoneNumber: userEnterdata.PhoneNumber,
 	})
@@ -71,18 +75,29 @@ func EditUserProfileByadmin(c *gin.Context) {
 
 //>>>>>>>>>>> Admin profile <<<<<<<<<<<<<<<<<<<<<<<
 func AdminProfile(c *gin.Context) {
-	id := c.Param("id")
-
-	var user_data ProfileData
-	db := config.DBconnect()
-	result := db.Raw("SELECT firstname,lastname,email,phone_number FROM admins WHERE id =?", id).Scan(&user_data)
+	adminid, err := strconv.Atoi(c.GetString("adminid"))
+	if err != nil {
+		c.JSON(400, gin.H{
+			"Error": "Error in string conversion ",
+		})
+		return
+	}
+	var user_data models.Admin
+	db := config.DB
+	result := db.First(&user_data, adminid)
 	if result.Error != nil {
 		c.JSON(404, gin.H{
-			"Error": result.Error.Error(),
+			"Error":   result.Error.Error(),
+			"Message": "Admin does't exist",
+			"Status":  "false",
 		})
 		return
 	}
 	c.JSON(200, gin.H{
-		"Profile Details": user_data,
+
+		"First name ":  user_data.Firstname,
+		"Last Name":    user_data.Lastname,
+		"Email":        user_data.Email,
+		"Phone number": user_data.PhoneNumber,
 	})
 }

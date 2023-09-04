@@ -5,44 +5,42 @@ import (
 )
 
 type Payment struct {
-	Payment_id    uint `JSON:"payment_id" gorm:"primarykey"`
-	User          User `gorm:"ForeignKey:User_id"`
-	User_id       uint
+	PaymentId     uint `JSON:"payment_id" gorm:"primarykey"`
+	User          User `gorm:"ForeignKey:UserId"`
+	UserId        uint
 	PaymentMethod string `jSON:"payment_method" gorm:"not null"`
 	Totalamount   uint   `jSON:"total_amount" gorm:"not null"`
 	Status        string `jSON:"Status" gorm:"not null"`
 	Date          time.Time
-	// RazorPay      RazorPay  `gorm:"ForeignKey:razorpayid"`
-	// Razorpayid    string    `JSON:"razorpayid" gorm:"defualt:null"`
 }
 
 type OderDetails struct {
-	Oderid       uint `JSON:"oderid" gorm:"primarykey"`
-	Userid       uint
-	User         User `gorm:"ForeignKey:Userid"`
-	Address_id   uint
-	Address      Address `gorm:"ForeignKey:Address_id"`
-	Paymentid    uint
-	Payment      Payment `gorm:"ForeignKey:Paymentid"`
-	Oder_itemid uint
-	Product_id   uint
-	Product      Product `gorm:"ForeignKey:Product_id"`
-	Quantity     uint
-	Status       string `jSON:"Status" gorm:"not null"`
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
+	Oderid     uint `JSON:"oderid" gorm:"primarykey"`
+	Userid     uint
+	User       User `gorm:"ForeignKey:Userid"`
+	AddressId  uint
+	Address    Address `gorm:"ForeignKey:AddressId"`
+	PaymentId  uint
+	Payment    Payment `gorm:"ForeignKey:PaymentId"`
+	OderItemId uint
+	ProductId  uint
+	Product    Product `gorm:"ForeignKey:ProductId"`
+	Quantity   uint
+	Status     string `jSON:"Status" gorm:"not null"`
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
 }
 
 type Oder_item struct {
-	Order_id    uint    `JSON:"Order_id" gorm:"primarykey"`
-	User        User    `gorm:"ForeignKey:Useridno"`
-	Useridno    uint    `json:"useridno"  gorm:"not null" `
-	Totalamount uint    `json:"totalamount"  gorm:"not null" `
-	Payment     Payment `gorm:"ForeignKey:Paymentid"`
-	Paymentid   uint    `json:"paymentid"`
-	Orderstatus string  `json:"orderstatus" `
-	Address     Address `gorm:"ForeignKey:Addid"`
-	Addid       uint    `json:"addid"  `
+	OrderId     uint    `JSON:"OrderId" gorm:"primarykey"`
+	User        User    `gorm:"ForeignKey:UserIdNo"`
+	UserIdNo    uint    `json:"useridno"  gorm:"not null" `
+	TotalAmount uint    `json:"TotalAmount"  gorm:"not null" `
+	Payment     Payment `gorm:"ForeignKey:PaymentId"`
+	PaymentId   uint    `json:"PaymentId"`
+	OrderStatus string  `json:"orderstatus" `
+	Address     Address `gorm:"ForeignKey:AddId"`
+	AddId       uint    `json:"addid"  `
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
 }
@@ -61,4 +59,20 @@ type RazorPay struct {
 	RazorPayOrderID string `JSON:"razorpayorderid"`
 	Signature       string `JSON:"signature"`
 	AmountPaid      string `JSON:"amountpaid"`
+}
+
+type Wallet struct {
+	Id     uint
+	User   User `gorm:"ForeignKey:UserId"`
+	UserId uint
+	Amount float64
+}
+
+type WalletHistory struct {
+	Id             uint `JSON:"Id" gorm:"primarykey"`
+	User           User `gorm:"ForeignKey:UserId"`
+	UserId         uint 
+	Amount         float64 
+	TransctionType string
+	Date           time.Time
 }
