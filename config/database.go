@@ -17,6 +17,10 @@ func DBconnect() *gorm.DB {
 	}
 	DB.AutoMigrate(&models.User{})
 	DB.AutoMigrate(&models.Admin{})
+	DB.AutoMigrate(&models.Address{})
+	DB.AutoMigrate(&models.Product{})
+	DB.AutoMigrate(&models.Brand{})
+
 	return DB
 
 }

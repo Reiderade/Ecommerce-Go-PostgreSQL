@@ -10,7 +10,6 @@ import (
 	"github.com/athunlal/models"
 	"github.com/gin-gonic/gin"
 
-	// "github.com/golang-jwt/jwt/v4"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -23,22 +22,14 @@ type checkUserData struct {
 	Otp         string
 }
 
-//-------Validate----------------------->
-func Validate(c *gin.Context) {
-	c.Get("user")
-	c.JSON(http.StatusOK, gin.H{
-		"message": "User login successfully",
-	})
-}
-
 //----------User signup--------------------------------------->
 
 func UserSignUP(c *gin.Context) {
 	var Data checkUserData
 
 	if c.Bind(&Data) != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "Bad request",
+		c.JSON(400, gin.H{
+			"error": "Data binding error",
 		})
 		return
 	}
@@ -47,7 +38,8 @@ func UserSignUP(c *gin.Context) {
 	hash, err := bcrypt.GenerateFromPassword([]byte(Data.Password), 10)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "Bad request hashing password",
+			"Status": "False",
+			"Error":  "Hashing password error",
 		})
 		return
 	}
@@ -56,6 +48,7 @@ func UserSignUP(c *gin.Context) {
 
 	db := config.DBconnect()
 	result := db.First(&temp_user, "email LIKE ?", Data.Email)
+
 	if result.Error != nil {
 		user := models.User{
 
@@ -67,66 +60,24 @@ func UserSignUP(c *gin.Context) {
 		}
 		result2 := db.Create(&user)
 		if result2.Error != nil {
-			c.JSON(http.StatusOK, gin.H{
-				"message": "Bad request",
+			c.JSON(500, gin.H{
+				"Status": "False",
+				"Error":  "User data creating error",
 			})
 		} else {
 			db.Model(&user).Where("email LIKE ?", user.Email).Update("otp", otp)
 
 			c.JSON(202, gin.H{
-				"message": "Go to /signup/otpvalidate", //202 success but there still one more process
+				"message": "Go to /signup/otpvalidate",
 			})
 		}
 
 	} else {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "User already Exist",
+		c.JSON(409, gin.H{
+			"Error": "User already Exist",
 		})
 		return
 	}
-}
-
-//-------Otp validtioin------------->
-
-func OtpValidation(c *gin.Context) {
-	type User_otp struct {
-		Otp   string
-		Email string
-	}
-	var user_otp User_otp
-	var userData models.User
-	if c.Bind(&user_otp) != nil {
-		c.JSON(400, gin.H{
-			"Error": "Could not bind the JSON Data",
-		})
-		return
-	}
-	db := config.DBconnect()
-	result := db.First(&userData, "otp LIKE ? AND email LIKE ?", user_otp.Otp, user_otp.Email)
-	if result.Error != nil {
-		c.JSON(404, gin.H{
-			"Error": result.Error.Error(),
-		})
-		db.Last(&userData).Delete(&userData)
-		c.JSON(422, gin.H{
-			"Error":   "Wrong OTP Register Once agian",
-			"Message": "Goto /signup/otpvalidate",
-		})
-		return
-	}
-	c.JSON(200, gin.H{
-		"Message": "New User Successfully Registered",
-	})
-
-}
-
-//-------------User logout---------------------->
-
-func UserSignout(c *gin.Context) {
-	c.SetCookie("Autherization", "", -1, "", "", false, false)
-	c.JSON(200, gin.H{
-		"Message": "User Successfully  Log Out",
-	})
 }
 
 //------------User login------------------------>
@@ -139,17 +90,27 @@ func UesrLogin(c *gin.Context) {
 
 	var user userData
 	if c.Bind(&user) != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "Bad request",
+		c.JSON(400, gin.H{
+			"error": "Data binding error",
 		})
 		return
 	}
 	var checkUser models.User
 	db := config.DBconnect()
 	result := db.First(&checkUser, "email LIKE ?", user.Email)
+
+	if checkUser.Isblocked == true {
+		c.JSON(401, gin.H{
+			"Status":  " Authorization",
+			"Message": "User blocked by admin",
+		})
+		return
+	}
+
 	if result.Error != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"user": "User NOT found",
+		c.JSON(404, gin.H{
+			"Status":  "false",
+			"Message": "User not exit",
 		})
 		return
 	}
@@ -157,20 +118,196 @@ func UesrLogin(c *gin.Context) {
 	err := bcrypt.CompareHashAndPassword([]byte(checkUser.Password), []byte(user.Password))
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "Password is incorrect",
+			"Status": "false",
+			"error":  "Password is incorrect",
 		})
 		return
 	}
 
-	//----------------Generating a JWT-tokent-------------------//
+	//>>>>>>>>>>>>>>>>> Generating a JWT-tokent <<<<<<<<<<<<<<<//
 
 	str := strconv.Itoa(int(checkUser.ID))
 	tokenString := auth.TokenGeneration(str)
 	c.SetSameSite(http.SameSiteLaxMode)
-	c.SetCookie("Autherization", tokenString, 3600*24*30, "", "", false, true)
+	c.SetCookie("UserAutherization", tokenString, 3600*24*30, "", "", false, true)
 
 	c.JSON(http.StatusOK, gin.H{
 		"message": "User login successfully",
 	})
 
+}
+
+//>>>>>>>>>>>>>>> User logout <<<<<<<<<<<<<<<<<<<<<<<<
+
+func UserSignout(c *gin.Context) {
+	c.SetCookie("UserAutherization", "", -1, "", "", false, false)
+	c.JSON(200, gin.H{
+		"Message": "User Successfully  Log Out",
+	})
+}
+
+//>>>>>>>>>>>>>>> Validate <<<<<<<<<<<<<<<<<<<<<<<<<<<<
+func Validate(c *gin.Context) {
+	c.Get("user")
+	c.JSON(200, gin.H{
+		"message": "User login successfully",
+	})
+}
+
+//>>>>>>>>>>>> Change password by user <<<<<<<<<<<<<<<<
+
+func UserChangePassword(c *gin.Context) {
+
+	var userEnterData checkUserData
+	if c.Bind(&userEnterData) != nil {
+		c.JSON(400, gin.H{
+			"error": "Data binding error",
+		})
+		return
+	}
+
+	id, err := strconv.Atoi(c.GetString("userid"))
+
+	if err != nil {
+		c.JSON(400, gin.H{
+			"Error": "Error in string conversion",
+		})
+		return
+	}
+
+	var userData models.User
+	db := config.DBconnect()
+	result := db.First(&userData, "id = ?", id)
+	if result.Error != nil {
+		c.JSON(409, gin.H{
+			"Error": "User not exist",
+		})
+		return
+	}
+
+	err = bcrypt.CompareHashAndPassword([]byte(userData.Password), []byte(userEnterData.Password))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"status": "false",
+			"error":  "Password is incorrect",
+		})
+		return
+	} else {
+		c.JSON(200, gin.H{
+			"message": "Go to /updatepassword",
+		})
+	}
+}
+
+//>>>>>>>>>>>>> updating new user <<<<<<<<<<<<<<<<<<<<<<
+func Updatepassword(c *gin.Context) {
+
+	var userEnterData checkUserData
+	var userData models.User
+	if c.Bind(&userEnterData) != nil {
+		c.JSON(400, gin.H{
+			"error": "Data binding error",
+		})
+		return
+	}
+	hash, err := bcrypt.GenerateFromPassword([]byte(userEnterData.Password), 10)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"Status": "False",
+			"Error":  "Hashing password error",
+		})
+		return
+	}
+
+	id, err := strconv.Atoi(c.GetString("userid"))
+	if err != nil {
+		c.JSON(400, gin.H{
+			"Error": "Error in string conversion",
+		})
+		return
+	}
+	db := config.DBconnect()
+	result := db.First(&userData, "id = ?", id)
+	if result.Error != nil {
+		c.JSON(409, gin.H{
+			"Error": "User not exist",
+		})
+		return
+	}
+
+	db.Model(&userData).Where("id = ?", id).Update("password", hash)
+	c.JSON(202, gin.H{
+		"message": "Successfully updated password",
+	})
+}
+
+//>>>>>>>>>>>>Veiw user profile <<<<<<<<<<<<<<<<<<<<<<<<<<
+func ShowUserDetails(c *gin.Context) {
+	var userData models.User
+	id, err := strconv.Atoi(c.GetString("userid"))
+	if err != nil {
+		c.JSON(400, gin.H{
+			"Error": "Error in string conversion",
+		})
+		return
+	}
+	db := config.DBconnect()
+	result := db.First(&userData, "id = ?", id)
+	if result.Error != nil {
+		c.JSON(409, gin.H{
+			"Error": "User not exist",
+		})
+		return
+	}
+	c.JSON(202, gin.H{
+
+		"User profile": userData,
+	})
+}
+
+//>>>>>>>>>>> Edit user profile <<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+
+func EditUserProfilebyUser(c *gin.Context) {
+	var userEnterData checkUserData
+	if c.Bind(&userEnterData) != nil {
+		c.JSON(400, gin.H{
+			"error": "Data binding error",
+		})
+		return
+	}
+
+	var userData models.User
+	id, err := strconv.Atoi(c.GetString("userid"))
+	if err != nil {
+		c.JSON(400, gin.H{
+			"Error": "Error in string conversion",
+		})
+		return
+	}
+	db := config.DBconnect()
+	result := db.First(&userData, "id = ?", id)
+	if result.Error != nil {
+		c.JSON(409, gin.H{
+			"Error": "User not exist",
+		})
+		return
+	}
+
+	result = db.Model(&userData).Updates(models.User{
+		Firstname:   userEnterData.Firstname,
+		Lastname:    userEnterData.Lastname,
+		PhoneNumber: userEnterData.PhoneNumber,
+	})
+
+	if result.Error != nil {
+		c.JSON(404, gin.H{
+			"Error": result.Error.Error(),
+		})
+		return
+	}
+	
+	c.JSON(200, gin.H{
+		"Message":      "Successfully Updated the profile",
+		"Updated data": userData,
+	})
 }
