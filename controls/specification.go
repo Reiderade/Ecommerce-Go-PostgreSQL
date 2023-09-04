@@ -1,17 +1,22 @@
 package controls
 
 import (
+	"fmt"
+
 	"path/filepath"
 	"strconv"
+	"time"
 
 	"github.com/athunlal/config"
 	"github.com/athunlal/models"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/razorpay/razorpay-go"
 )
 
 //>>>>>> Add brand <<<<<<<<<<<<<<<<<<<<
 func AddBrands(c *gin.Context) {
+	fmt.Println("><")
 	var addbrand models.Brand
 	if c.Bind(&addbrand) != nil {
 		c.JSON(400, gin.H{
@@ -86,39 +91,64 @@ func EditBrand(c *gin.Context) {
 
 //>>>>>>>>>>>> Add to cart <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
 func AddToCart(c *gin.Context) {
-
+	type data struct {
+		Product_id uint
+		Quantity   uint
+	}
+	var bindData data
 	var cartdata models.Cart
 	var productdata models.Product
-	if c.Bind(&cartdata) != nil {
+	if c.Bind(&bindData) != nil {
 		c.JSON(400, gin.H{
-			"Bad Request": "Could not bind the JSON data",
+			"Error": "Could not bind the JSON data",
 		})
 		return
 	}
+
 	id, err := strconv.Atoi(c.GetString("userid"))
 	if err != nil {
 		c.JSON(400, gin.H{
 			"Error": "Error in string conversion",
 		})
 	}
-	DB := config.DBconnect()
-	DB.Table("products").Select("stock, price").Where("productid = ?", cartdata.Product_id).Scan(&productdata)
 
-	if cartdata.Quantity >= productdata.Stock {
+	db := config.DBconnect()
+	var count int64
+
+	//fetching the table products for checking stocks
+	db.Table("products").Select("stock, price").Where("productid = ?", bindData.Product_id).Scan(&productdata)
+	if bindData.Quantity >= productdata.Stock {
 		c.JSON(404, gin.H{
 			"Message": "Out of Stock",
 		})
 		return
 	}
-	totalprice := productdata.Price * cartdata.Quantity
+
+	//fetching the table carts for checking the product_id is exist
+	db.Model(&cartdata).Where("product_id = ?", bindData.Product_id).Count(&count)
+	if count > 0 && id == int(cartdata.Userid) {
+		var sum uint
+
+		//fetching the quantity form carts
+		db.Table("carts").Where("product_id = ?", bindData.Product_id).Select("SUM(quantity)").Row().Scan(&sum)
+		totalQuantity := sum + bindData.Quantity
+
+		//updating the quatity to the carts
+		db.Model(&cartdata).Where("product_id = ?", bindData.Product_id).Update("quantity", totalQuantity)
+		c.JSON(200, gin.H{
+			"Message": "Quantity added Successfully",
+		})
+		return
+	}
+	totalprice := productdata.Price * bindData.Quantity
 	cartitems := models.Cart{
-		Product_id: cartdata.Product_id,
-		Quantity:   cartdata.Quantity,
+		Product_id: bindData.Product_id,
+		Quantity:   bindData.Quantity,
 		Price:      productdata.Price,
 		Totalprice: totalprice,
 		Userid:     uint(id),
 	}
-	result := DB.Create(&cartitems)
+	result := db.Create(&cartitems)
 	if result.Error != nil {
 		c.JSON(400, gin.H{
 			"Error": result.Error.Error(),
@@ -128,7 +158,6 @@ func AddToCart(c *gin.Context) {
 	c.JSON(200, gin.H{
 		"Message": "Added to the Cart Successfull",
 	})
-
 }
 
 //>>>>>>>>>>>>>>> View Products <<<<<<<<<<<<<<<<<<<<<<<
@@ -170,9 +199,15 @@ func ViewCart(c *gin.Context) {
 //>>>>>>>>>>>>>Remove cart <<<<<<<<<<<<<<<<<<<<<
 func DeleteCart(c *gin.Context) {
 	id := c.Param("id")
+	userid, err := strconv.Atoi(c.GetString("userid"))
+	if err != nil {
+		c.JSON(400, gin.H{
+			"Error": "Error in string conversion",
+		})
+	}
 
 	db := config.DBconnect()
-	result := db.Exec("delete from carts where id= ?", id)
+	result := db.Exec("delete from carts where id= ? AND userid = ?", id, userid)
 	count := result.RowsAffected
 	if count == 0 {
 		c.JSON(400, gin.H{
@@ -225,4 +260,215 @@ func AddImages(c *gin.Context) {
 	c.JSON(200, gin.H{
 		"Message": "Image Added Successfully",
 	})
+}
+
+//>>>>>>>>>>>>>>>> Payment <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+func Payment(c *gin.Context) {
+	//fetching user id from token
+	id, err := strconv.Atoi(c.GetString("userid"))
+	if err != nil {
+		c.JSON(400, gin.H{
+			"Error": "Error in string conversion",
+		})
+	}
+	type data struct {
+		Method string
+	}
+	var bindData data
+	var cartDate models.Cart
+
+	//binding the data from posman
+	if c.Bind(&bindData) != nil {
+		c.JSON(400, gin.H{
+			"Error": "Could not bind the JSON data",
+		})
+		return
+	}
+
+	db := config.DBconnect()
+
+	//fetching the data from the table carts by id
+	result := db.First(&cartDate, "userid = ?", id)
+	if result.Error != nil {
+		c.JSON(400, gin.H{
+			"Error": result.Error.Error(),
+		})
+		return
+	}
+	//fetching the total amount from the table carts
+	var total_amount float64
+	result = db.Table("carts").Where("userid = ?", id).Select("SUM(totalprice)").Scan(&total_amount)
+	if result.Error != nil {
+		c.JSON(400, gin.H{
+			"Error": result.Error.Error(),
+		})
+		return
+	}
+
+	if bindData.Method == "COD" {
+		if result.Error != nil {
+			c.JSON(400, gin.H{
+				"Error": result.Error.Error(),
+			})
+			return
+		}
+
+		paymentData := models.Payment{
+			PaymentMethod: bindData.Method,
+			Totalamount:   uint(total_amount),
+			User_id:       uint(id),
+		}
+
+		result = db.Create(&paymentData)
+		if result.Error != nil {
+			c.JSON(400, gin.H{
+				"Error": result.Error.Error(),
+			})
+			return
+		}
+		c.JSON(200, gin.H{
+			"Message": "Payment Method COD",
+			"Status":  "Completed",
+		})
+
+	} else if bindData.Method == "UPI" {
+		//razor pay code
+		client := razorpay.NewClient("rzp_test_mCL1zwPhJbeuND", "qUeHjny0jl14sphKqOFpyq9M")
+
+		data := map[string]interface{}{
+			"amount":   cartDate.Totalprice,
+			"currency": "INR",
+			"receipt":  "some_receipt_id",
+		}
+		body, err := client.Order.Create(data, nil)
+
+		if err != nil {
+			c.JSON(500, gin.H{
+				"Error": err.Error(),
+			})
+			return
+		} else {
+			paymentData := models.Payment{
+				PaymentMethod: bindData.Method,
+				Totalamount:   uint(total_amount),
+				User_id:       uint(id),
+			}
+
+			result = db.Create(&paymentData)
+			if result.Error != nil {
+				c.JSON(400, gin.H{
+					"Error": result.Error.Error(),
+				})
+				return
+			}
+			orderID := body["id"].(string)
+			amount := body["amount"].(float64)
+			c.JSON(200, gin.H{
+				"Order ID": orderID,
+				"Amount":   amount,
+				"Message":  "Payment Method UPI",
+				"Status":   "Completed",
+			})
+		}
+	} else {
+		c.JSON(400, gin.H{
+			"Error": "Payment field",
+		})
+		return
+	}
+}
+
+// >>>>>>>>>>>>>>>> coupon <<<<<<<<<<<<<<<<<<<
+func AddCoupon(c *gin.Context) {
+
+	type data struct {
+		CouponCode    string
+		Year          uint
+		Month         uint
+		Day           uint
+		DiscountPrice int
+		Expired       time.Time
+	}
+
+	var userEnterData data
+	var couponData []models.Coupon
+	db := config.DBconnect()
+
+	if c.Bind(&userEnterData) != nil {
+		c.JSON(400, gin.H{
+			"Error": "Could not bind the JSON data",
+		})
+		return
+	}
+	specificTime := time.Date(int(userEnterData.Year), time.Month(userEnterData.Month), int(userEnterData.Day), 0, 0, 0, 0, time.UTC)
+
+	userEnterData.Expired = specificTime
+
+	err := db.First(&couponData, "coupon_code = ?", userEnterData.CouponCode).Error
+	if err != nil {
+		Data := models.Coupon{
+			CouponCode:    userEnterData.CouponCode,
+			DiscountPrice: userEnterData.DiscountPrice,
+			Expired:       specificTime,
+		}
+		result := db.Create(&Data)
+		if result.Error != nil {
+			c.JSON(400, gin.H{
+				"Error": result.Error.Error(),
+			})
+		}
+		c.JSON(200, gin.H{
+			"message": userEnterData,
+		})
+	} else {
+		c.JSON(400, gin.H{
+			"message": "Coupon already exist",
+		})
+	}
+
+}
+
+//>>>>>>>>>>>>>> Check coupon <<<<<<<<<<<<<<<<<<<<
+func CheckCoupon(c *gin.Context) {
+	type data struct {
+		Coupon string
+	}
+	var coupon models.Coupon
+	var userEnterData data
+
+	if c.Bind(&userEnterData) != nil {
+		c.JSON(400, gin.H{
+			"Error": "Could not bind the JSON data",
+		})
+		return
+	}
+
+	db := config.DBconnect()
+
+	var count int64
+	result := db.Find(&coupon, "coupon_code = ?", userEnterData.Coupon).Count(&count)
+	if result.Error != nil {
+		c.JSON(400, gin.H{
+			"Error": result.Error.Error(),
+		})
+	}
+
+	if count == 0 {
+		c.JSON(400, gin.H{
+			"message": "Coupon not exist",
+		})
+		return
+	}
+	currentTime := time.Now()
+	expiredData := coupon.Expired
+
+	if currentTime.Before(expiredData) {
+		c.JSON(200, gin.H{
+			"message": "Coupon valide",
+		})
+	} else if currentTime.After(expiredData) {
+		c.JSON(400, gin.H{
+			"message": "Coupon expired",
+		})
+	}
 }
