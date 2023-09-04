@@ -16,6 +16,11 @@ func main() {
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.Default()
 
-	r.POST("/test", controls.UserSignUP)
+	r.GET("/signup", controls.UserSignUP)
+	r.GET("/login", controls.UserLoginPage)
+
+	r.POST("/adminSignup",controls.AdminSignup)
+	r.POST("/signup", controls.UserSignUP)
+	r.POST("/login", controls.UesrLogin)
 	r.Run()
 }
