@@ -15,23 +15,12 @@ type data struct {
 	Lastname    string
 	Email       string
 	Password    string
-	PhoneNumber int
+	PhoneNumber string
 	Otp         string
 }
 
-func UserSignupPage(c *gin.Context) {
-	c.JSON(http.StatusBadRequest, gin.H{
-		"message": "User signup page",
-	})
-}
-
-func UserLoginPage(c *gin.Context) {
-	c.JSON(http.StatusBadRequest, gin.H{
-		"message": "User login page",
-	})
-}
-
 //----------User signup--------------------------------------->
+
 func UserSignUP(c *gin.Context) {
 
 	var Data data
@@ -50,13 +39,6 @@ func UserSignUP(c *gin.Context) {
 		})
 		return
 	}
-
-	// if Data.Otp != Otp {
-	// 	c.JSON(http.StatusBadRequest, gin.H{
-	// 		"error": "Enter valid OTP",
-	// 	})
-	// 	return
-	// }
 
 	db := config.DBconnect()
 
