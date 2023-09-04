@@ -2,6 +2,7 @@ package controls
 
 import (
 	"fmt"
+	"time"
 
 	"os"
 	"strconv"
@@ -18,6 +19,7 @@ func DeleteCartItems(c *gin.Context) {
 		c.JSON(400, gin.H{
 			"Error": "Error in string conversion",
 		})
+		return
 	}
 	// var cartData models.Cart
 	db := config.DBconnect()
@@ -62,10 +64,12 @@ func CashOnDelivery(c *gin.Context) {
 		})
 		return
 	}
+	todaysDate := time.Now()
 	paymentData := models.Payment{
 		PaymentMethod: "COD",
 		Totalamount:   uint(total_amount),
-		Status: "pending",
+		Date:          todaysDate,
+		Status:        "pending",
 		User_id:       uint(id),
 	}
 	result = db.Create(&paymentData)
@@ -75,11 +79,37 @@ func CashOnDelivery(c *gin.Context) {
 		})
 		return
 	}
+
+	var addressData models.Address
+	result = db.First(&addressData, "userid = ?", id)
+	if result.Error != nil {
+		c.JSON(400, gin.H{
+			"Error": result.Error.Error(),
+		})
+		return
+	}
+
+	oderData := models.Oder_item{
+		Useridno:    uint(id),
+		Totalamount: uint(total_amount),
+		Paymentid:   paymentData.Payment_id,
+		Addid:       addressData.Addressid,
+	}
+
+	result = db.Create(&oderData)
+	if result.Error != nil {
+		c.JSON(400, gin.H{
+			"Error": result.Error.Error(),
+		})
+		return
+	}
+
+	
 	c.JSON(200, gin.H{
 		"Message": "Payment Method COD",
-		"Status":  "Completed",
+		"Status":  "True",
 	})
-	fmt.Println("this is the user id :", id)
+	
 	OderDetails(c)
 	DeleteCartItems(c)
 
@@ -161,6 +191,7 @@ func RazorpaySuccess(c *gin.Context) {
 		})
 		return
 	}
+	todyDate := time.Now()
 	method := "Razor Pay"
 	status := "pending"
 	totalprice, _ := strconv.Atoi(totalamount)
@@ -169,6 +200,7 @@ func RazorpaySuccess(c *gin.Context) {
 		User_id:       uint(id),
 		PaymentMethod: method,
 		Status:        status,
+		Date:          todyDate,
 		// Razorpayid:    paymentid,
 		Totalamount: uint(totalprice),
 	}

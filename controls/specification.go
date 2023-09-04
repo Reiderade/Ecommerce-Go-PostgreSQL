@@ -1,7 +1,12 @@
 package controls
 
 import (
+	"bytes"
 	"fmt"
+
+	"text/template"
+
+	"os/exec"
 
 	"path/filepath"
 	"strconv"
@@ -13,9 +18,8 @@ import (
 	"github.com/google/uuid"
 )
 
-//>>>>>> Add brand <<<<<<<<<<<<<<<<<<<<
+//Admin adding the product brand
 func AddBrands(c *gin.Context) {
-	fmt.Println("><")
 	var addbrand models.Brand
 	if c.Bind(&addbrand) != nil {
 		c.JSON(400, gin.H{
@@ -37,7 +41,7 @@ func AddBrands(c *gin.Context) {
 	})
 }
 
-// >>>>>>>>>> view brand <<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+//view brand
 func ViewBrand(c *gin.Context) {
 	var brandData []models.Brand
 	db := config.DBconnect()
@@ -54,7 +58,7 @@ func ViewBrand(c *gin.Context) {
 	})
 }
 
-//>>>>>>>>>>>>>> Edit brand <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+//Edit brand by admin
 func EditBrand(c *gin.Context) {
 	bid := c.Param("id")
 	id, err := strconv.Atoi(bid)
@@ -88,67 +92,80 @@ func EditBrand(c *gin.Context) {
 	})
 }
 
-//>>>>>>>>>>>> Add to cart <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+//Adding the product to the cart
 func AddToCart(c *gin.Context) {
 	type data struct {
 		Product_id uint
 		Quantity   uint
 	}
 	var bindData data
-	var cartdata models.Cart
-	var productdata models.Product
+	var productData models.Product
+
 	if c.Bind(&bindData) != nil {
 		c.JSON(400, gin.H{
-			"Error": "Could not bind the JSON data",
+			"Bad Request": "Could not bind the JSON data",
 		})
 		return
 	}
-
 	id, err := strconv.Atoi(c.GetString("userid"))
 	if err != nil {
 		c.JSON(400, gin.H{
 			"Error": "Error in string conversion",
 		})
+		return
+	}
+	db := config.DBconnect()
+
+	//checking the product is exist or not
+	result := db.First(&productData, bindData.Product_id)
+	if result.Error != nil {
+		c.JSON(400, gin.H{
+			"Message": "Product not exist",
+		})
+		return
 	}
 
-	db := config.DBconnect()
-	var count int64
-
-	//fetching the table products for checking stocks
-	db.Table("products").Select("stock, price").Where("productid = ?", bindData.Product_id).Scan(&productdata)
-	if bindData.Quantity >= productdata.Stock {
+	//checking stock quantity
+	if bindData.Quantity > productData.Stock {
 		c.JSON(404, gin.H{
 			"Message": "Out of Stock",
 		})
 		return
 	}
 
-	//fetching the table carts for checking the product_id is exist
-	db.Model(&cartdata).Where("product_id = ?", bindData.Product_id).Count(&count)
-	fmt.Println(count)
-	if count >= 0 && id == int(cartdata.Userid) {
-		var sum uint
+	var sum uint
+	var Price uint
 
-		//fetching the quantity form carts
-		db.Table("carts").Where("product_id = ?", bindData.Product_id).Select("SUM(quantity)").Row().Scan(&sum)
-		totalQuantity := sum + bindData.Quantity
-
-		//updating the quatity to the carts
-		db.Model(&cartdata).Where("product_id = ?", bindData.Product_id).Update("quantity", totalQuantity)
+	//checking the produt_id and user_id is in the carts table
+	err = db.Table("carts").Where("product_id = ? AND userid = ? ", bindData.Product_id, id).Select("quantity", "totalprice").Row().Scan(&sum, &Price)
+	if err != nil {
+		totalprice := productData.Price * bindData.Quantity
+		cartitems := models.Cart{
+			Product_id: bindData.Product_id,
+			Quantity:   bindData.Quantity,
+			Price:      productData.Price,
+			Totalprice: totalprice,
+			Userid:     uint(id),
+		}
+		result := db.Create(&cartitems)
+		if result.Error != nil {
+			c.JSON(400, gin.H{
+				"Error": result.Error.Error(),
+			})
+			return
+		}
 		c.JSON(200, gin.H{
-			"Message": "Quantity added Successfully",
+			"Message": "Added to the Cart Successfull",
 		})
 		return
 	}
-	totalprice := productdata.Price * bindData.Quantity
-	cartitems := models.Cart{
-		Product_id: bindData.Product_id,
-		Quantity:   bindData.Quantity,
-		Price:      productdata.Price,
-		Totalprice: totalprice,
-		Userid:     uint(id),
-	}
-	result := db.Create(&cartitems)
+
+	//calculatin the tottal quantity and total Price
+	totalQuantity := sum + bindData.Quantity
+	totalPrice := Price * totalQuantity
+
+	//updating the quatity and the total price  to the carts
+	result = db.Model(&models.Cart{}).Where("product_id = ?", bindData.Product_id).Updates(map[string]interface{}{"quantity": totalQuantity, "totalprice": totalPrice})
 	if result.Error != nil {
 		c.JSON(400, gin.H{
 			"Error": result.Error.Error(),
@@ -156,12 +173,13 @@ func AddToCart(c *gin.Context) {
 		return
 	}
 	c.JSON(200, gin.H{
-		"Message": "Added to the Cart Successfull",
+		"Message": "Quantity added Successfully",
 	})
+	return
+
 }
 
-//>>>>>>>>>>>>>>> View Products <<<<<<<<<<<<<<<<<<<<<<<
-
+//View cart items using user id
 func ViewCart(c *gin.Context) {
 	id, err := strconv.Atoi(c.GetString("userid"))
 	if err != nil {
@@ -196,7 +214,7 @@ func ViewCart(c *gin.Context) {
 	}
 }
 
-//>>>>>>>>>>>>>Remove cart <<<<<<<<<<<<<<<<<<<<<
+//Delete cart of a perticular user id
 func DeleteCart(c *gin.Context) {
 	id := c.Param("id")
 	userid, err := strconv.Atoi(c.GetString("userid"))
@@ -226,8 +244,7 @@ func DeleteCart(c *gin.Context) {
 	})
 }
 
-//>>>>>>>>> Add Image <<<<<<<<<<<<<<<<<<<<<<<
-
+//Add image of the product by admin
 func AddImages(c *gin.Context) {
 	imagepath, _ := c.FormFile("image")
 	extension := filepath.Ext(imagepath.Filename)
@@ -262,7 +279,7 @@ func AddImages(c *gin.Context) {
 	})
 }
 
-// >>>>>>>>>>>>>>>> coupon <<<<<<<<<<<<<<<<<<<
+//Coupon adding by admin
 func AddCoupon(c *gin.Context) {
 
 	type data struct {
@@ -318,7 +335,7 @@ func AddCoupon(c *gin.Context) {
 
 }
 
-//>>>>>>>>>>>>>> Check coupon <<<<<<<<<<<<<<<<<<<<
+//Checking the coupon is valide or exist in the data base
 func CheckCoupon(c *gin.Context) {
 	type data struct {
 		Coupon string
@@ -363,8 +380,7 @@ func CheckCoupon(c *gin.Context) {
 	}
 }
 
-//>>>>>>>>>>>>> Applying coupon <<<<<<<<<<<<<<<<<<<<<<<<<
-
+//Coupon applying
 func Applycoupon(c *gin.Context) {
 	id, err := strconv.Atoi(c.GetString("userid"))
 	if err != nil {
@@ -400,11 +416,13 @@ func Applycoupon(c *gin.Context) {
 	//checking coupon is existig or not
 	var count int64
 	result := db.Find(&coupon, "coupon_code = ?", userEnterData.Coupon).Count(&count)
+
 	if result.Error != nil {
 		c.JSON(400, gin.H{
 			"Error": result.Error.Error(),
 		})
 	}
+
 	if count == 0 {
 		c.JSON(400, gin.H{
 			"message": "Coupon not exist",
@@ -414,11 +432,14 @@ func Applycoupon(c *gin.Context) {
 		expiredData := coupon.Expired
 
 		if currentTime.Before(expiredData) {
+
 			c.JSON(200, gin.H{
 				"message": "Coupon valide",
 			})
 			discountPercentage = coupon.DiscountPrice
+
 		} else if currentTime.After(expiredData) {
+
 			c.JSON(400, gin.H{
 				"message": "Coupon expired",
 			})
@@ -461,7 +482,7 @@ func Applycoupon(c *gin.Context) {
 	})
 }
 
-//>>>>>>>>>>>>>> wish list  <<<<<<<<<<<<<<<<<<<
+//To add the wish list
 func Wishlist(c *gin.Context) {
 	userId, err := strconv.Atoi(c.GetString("userid"))
 	if err != nil {
@@ -492,8 +513,7 @@ func Wishlist(c *gin.Context) {
 	})
 }
 
-//>>>>>>>>>>>>>>>>>> Add catogeries <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
-
+//Adding the catogery by admin
 func AddCatogeries(c *gin.Context) {
 
 	type Data struct {
@@ -534,8 +554,7 @@ func AddCatogeries(c *gin.Context) {
 	}
 }
 
-//>>>>>>>>>>Search by catogery <<<<<<<<<<<<<<<<<<<<<<<<<<<
-
+//Searching the catagery using catagery
 func FilteringByCatogery(c *gin.Context) {
 	id := c.Param("id")
 
@@ -553,8 +572,7 @@ func FilteringByCatogery(c *gin.Context) {
 
 }
 
-//>>>>>>>>>>>>>>>>>> Search <<<<<<<<<<<<<<<<<<<<<
-
+//Searching the product using product name and brand name. If product name does't exist then it search using the brand name
 func SearchProduct(c *gin.Context) {
 	type Data struct {
 		SearchValue string
@@ -595,139 +613,214 @@ func SearchProduct(c *gin.Context) {
 	})
 }
 
-//>>>>>>>>>> Oder Details <<<<<<<<<<<<<<<<
-
-func OderDetails(c *gin.Context) {
-	userId, err := strconv.Atoi(c.GetString("userid"))
-	if err != nil {
-		c.JSON(400, gin.H{
-			"Error": "Error in string conversion",
-		})
-	}
-
-	var UserAddress models.Address
-	var UserPayment models.Payment
-	var UserCart []models.Cart
-
-	db := config.DBconnect()
-	result := db.Find(&UserAddress, "userid = ? AND defaultadd = true", userId)
-	if result.Error != nil {
-		c.JSON(400, gin.H{
-			"Error": result.Error.Error(),
-		})
-	}
-	result = db.Find(&UserPayment, "user_id = ?", userId)
-	if result.Error != nil {
-		c.JSON(400, gin.H{
-			"Error": result.Error.Error(),
-		})
-	}
-	result = db.Find(&UserCart, "userid = ?", userId)
-	if result.Error != nil {
-		c.JSON(400, gin.H{
-			"Error": result.Error.Error(),
-		})
-		return
-	}
-
-	for _, UserCart := range UserCart {
-		OderDetails := models.OderDetails{
-			Userid:     uint(userId),
-			Address_id: UserAddress.Addressid,
-			Paymentid:  UserPayment.Payment_id,
-			Product_id: UserCart.Product_id,
-			Quantity:   UserCart.Quantity,
-			Status:     "Pending",
-		}
-
-		result = db.Create(&OderDetails)
-		if result.Error != nil {
-			c.JSON(400, gin.H{
-				"Error": result.Error.Error(),
-			})
-			return
-		}
-	}
-	c.JSON(200, gin.H{
-		"Message": "Oder Added succesfully",
-	})
+// creating pdf file containing invoice for show to the user
+type Invoice struct {
+	Name          string
+	Email         string
+	PaymentMethod string
+	Totalamount   int64
+	Date          string
+	OrderId       uint
+	Address       []Address
+	Items         []Item
+}
+type Address struct {
+	Phoneno  string
+	Houseno  string
+	Area     string
+	Landmark string
+	City     string
+	Pincode  string
+	District string
+	State    string
+	Country  string
 }
 
-//>>>>>>>>>> Show oder <<<<<<<<<<<<<<<<<<<
-func ShowOder(c *gin.Context) {
-	userId, err := strconv.Atoi(c.GetString("userid"))
+type Item struct {
+	Product     string
+	Description string
+	Qty         uint
+	Price       uint
+}
+
+//Templates for creating the pdf
+const invoiceTemplate = `
+Order ID : {{.OrderId}}<br>
+Order Date:{{.Date}} <br><hr>
+Name : {{.Name}} <br>
+Email: {{.Email}}<br>
+<hr>
+Billing Address :
+{{range .Address}}
+
+Phone number : {{.Phoneno}} <br>
+House number : {{.Houseno}} <br>
+Area : {{.Area}} <br>
+Landmark : {{.Landmark}} <br>
+City : {{.City}} <br>
+Pincode : {{.Pincode}} <br>
+District : {{.District}} <br>
+State : {{.State}} <br>
+Country : {{.Country}} <br>
+{{end}}
+<hr>
+Payment method : {{.PaymentMethod}}<br>
+<hr>
+{{range .Items}}
+
+Product :{{.Product}}  <br>
+Description: {{.Description}}<br>
+Price : {{.Price}}<br><br>
+
+{{end}}
+<hr><br>
+Total Amount : {{.Totalamount}}<br>
+`
+
+func InvoiceF(c *gin.Context) {
+	fmt.Println()
+
+	id, err := strconv.Atoi(c.GetString("userid"))
 	if err != nil {
 		c.JSON(400, gin.H{
 			"Error": "Error in string conversion",
 		})
 		return
 	}
-	var userOder []models.OderDetails
+
+	db := config.DBconnect()
+	var user models.User
+	var Payment models.Payment
+	var oderData models.OderDetails
+	var address models.Address
+	var Oder_item models.Oder_item
+
+	//fetching the data from table Oder_item using usder id
+	result := db.Last(&Oder_item).Where("useridno = ?", id)
+	if result.Error != nil {
+		c.JSON(400, gin.H{
+			"Error": result.Error.Error(),
+		})
+		return
+	}
+
+	//fetching the data from table Oder_details using userid and oder_idtemid, for fetching the oder_itemid
+	result = db.Last(&oderData).Where("useridno = ? AND oder_itemid = ?", id, Oder_item.Order_id)
+	if result.Error != nil {
+		c.JSON(400, gin.H{
+			"Error": result.Error.Error(),
+		})
+		return
+	}
+
+	//Fetching the data from table users using userid
+	result = db.First(&user, id)
+	if result.Error != nil {
+		c.JSON(400, gin.H{
+			"Error": result.Error.Error(),
+		})
+		return
+	}
+
+	//fetching the user address using address id from table Oder_Details
+	result = db.First(&address, oderData.Address_id)
+	if result.Error != nil {
+		c.JSON(400, gin.H{
+			"Error": result.Error.Error(),
+		})
+		return
+	}
+
+	//fetching the payment detail form table Payments using userid 
+	result = db.Last(&Payment, "user_id = ?", id)
+	if result.Error != nil {
+		c.JSON(400, gin.H{
+			"Error": result.Error.Error(),
+		})
+		return
+	}
+
+	//fetching the product data from table products using Oder_itemid from table Oder_item. 
 	var products []models.Product
-	// var userProduct models.Product
-
-	db := config.DBconnect()
-	result := db.Find(&userOder, "userid = ?", userId)
-	if result.Error != nil {
-		c.JSON(400, gin.H{
-			"Error": result.Error.Error(),
-		})
-		return
-	}
-
-	for _, order := range userOder {
-
-		db.Find(&products, "productid = ? ", order.Product_id)
-
-		c.JSON(200, gin.H{
-			"Product name ": products[0].Productname,
-			"Price":         products[0].Price,
-			"Description":   products[0].Description,
-			"Quantity":      userOder[0].Quantity,
-		})
-	}
-}
-
-//>>>>>>>>>>>>>>< Cancel Oder <<<<<<<<<<<<<<<<<<<<
-func CancelOder(c *gin.Context) {
-	userid, err := strconv.Atoi(c.GetString("userid"))
+	err = db.Joins("JOIN oder_details ON products.productid = oder_details.product_id").
+		Where("oder_details.oder_itemid = ?", oderData.Oder_itemid).Find(&products).Error
 	if err != nil {
 		c.JSON(400, gin.H{
-			"Error": "Error in string conversion",
-		})
-	}
-	var oder models.OderDetails
-	db := config.DBconnect()
-	result := db.Model(&oder).Where("userid = ?", userid).Update("status", "Canceled")
-	if result.Error != nil {
-		c.JSON(400, gin.H{
-			"Error": result.Error.Error(),
+			"Error": "somthing went wrong",
 		})
 		return
 	}
-	c.JSON(200, gin.H{
-		"Massage": "oder canceld",
-	})
-}
 
-//>>>>>>>>>>>>>>< Retrun Oder <<<<<<<<<<<<<<<<<<<<
-func ReturnOder(c *gin.Context) {
-	userid, err := strconv.Atoi(c.GetString("userid"))
+	//To list the product details from products, product data assign to slice items 
+	items := make([]Item, len(products))
+	for i, data := range products {
+		items[i] = Item{
+			Product:     data.Productname,
+			Price:       data.Price,
+			Description: data.Description,
+		}
+	}
+
+	//spliting the date from time.time 
+	timeString := Payment.Date.Format("2006-01-02")
+
+	//executing the template Invoice
+	invoice := Invoice{
+		Name:          user.Firstname,
+		Date:          timeString,
+		Email:         user.Email,
+		OrderId:       oderData.Oder_itemid,
+		PaymentMethod: Payment.PaymentMethod,
+		Totalamount:   int64(Payment.Totalamount),
+		Address: []Address{
+			{
+				Phoneno:  address.Phoneno,
+				Houseno:  address.Houseno,
+				Area:     address.Area,
+				Landmark: address.Landmark,
+				City:     address.City,
+				Pincode:  address.Pincode,
+				District: address.District,
+				State:    address.State,
+				Country:  address.Country,
+			},
+		},
+		Items: items,
+	}
+
+	tmpl, err := template.New("invoice").Parse(invoiceTemplate)
 	if err != nil {
 		c.JSON(400, gin.H{
-			"Error": "Error in string conversion",
-		})
-	}
-	var oder models.OderDetails
-	db := config.DBconnect()
-	result := db.Model(&oder).Where("userid = ?", userid).Update("status", "Product return")
-	if result.Error != nil {
-		c.JSON(400, gin.H{
-			"Error": result.Error.Error(),
+			"Error": err.Error(),
 		})
 		return
 	}
-	c.JSON(200, gin.H{
-		"Massage": "Product Return",
-	})
+
+	var buf bytes.Buffer
+	err = tmpl.Execute(&buf, invoice)
+	if err != nil {
+		c.JSON(400, gin.H{
+			"Error": err.Error(),
+		})
+		return
+	}
+
+	cmd := exec.Command("wkhtmltopdf", "-", "invoice.pdf")
+	cmd.Stdin = &buf
+	err = cmd.Run()
+	if err != nil {
+		c.JSON(400, gin.H{
+			"Error": err.Error(),
+		})
+		return
+	}
+
+	c.HTML(200, "invoice.html", gin.H{})
+}
+
+//To download the pdf file 
+func Download(c *gin.Context) {
+	c.Header("Content-Disposition", "attachment; filename=invoice.pdf")
+	c.Header("Content-Type", "application/pdf")
+	c.File("invoice.pdf")
 }
